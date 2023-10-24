@@ -1,0 +1,11 @@
+# personal stuff
+vertex_key.json
+
+# Ignore node_modules directory
+node_modules/
+
+# Ignore log files
+*.log
+
+# Ignore environment variables file
+.env
