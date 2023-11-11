@@ -2,6 +2,20 @@ import 'dotenv/config';
 import { Server } from 'socket.io';
 import { SpeechClient } from '@google-cloud/speech';
 
+type TranscriptResponseNonFinal = {
+  transcript: string;
+  isFinal: false;
+};
+
+type TranscriptResponseFinal = {
+  transcript: string;
+  isFinal: true;
+  speechClarity: number;
+  speedWPM: number;
+};
+
+type TranscriptResponse = TranscriptResponseNonFinal | TranscriptResponseFinal;
+
 const io = new Server(3001, {
   cors: {
     origin: 'http://localhost:3000',
@@ -23,51 +37,23 @@ io.on('connection', (socket) => {
     },
     interimResults: true // If you want interim results, set this to true
   };
-  let averageSpeedWPM = 0;
   const recognizeStream = speechClient
     .streamingRecognize(request as any)
     .on('error', (err) => console.log(err))
     .on('data', (data) => {
-      const isFinal = data.results[0].isFinal;
-      const transcript = data.results[0].alternatives[0].transcript;
+      const response = data.results[0];
 
-      if (isFinal) {
-        const speechClarity = data.results[0].alternatives[0].confidence;
-        const wordLengthsSeconds = data.results[0].alternatives[0].words.map(
-          (word: any) => {
-            const startTimeSeconds =
-              word.startTime.seconds + word.startTime.nanos * 1e-9;
-            const endTimeSeconds =
-              word.endTime.seconds + word.endTime.nanos * 1e-9;
-            return endTimeSeconds - startTimeSeconds;
-          }
-        );
-        const wordLengths = wordLengthsSeconds.reduce(
-          (acc: number, curr: number) => acc + curr,
-          0
-        );
-        const wordsInBlock = wordLengthsSeconds.length;
-        let averageSpeedWPMCurrent: undefined | number = undefined;
-        if (wordsInBlock === 0) {
-          averageSpeedWPMCurrent = undefined;
-        } else {
-          averageSpeedWPMCurrent = wordsInBlock / (wordLengths / 60);
-          averageSpeedWPM = (averageSpeedWPM + averageSpeedWPMCurrent) / 2;
-        }
-
-        return socket.emit('transcript', {
-          transcript,
-          isFinal,
-          speechClarity,
-          averageSpeedWPMCurrent,
-          averageSpeedWPM
-        });
+      if (response.isFinal) {
+        const transcriptResponse = generateFinalTranscriptResponse(response);
+        socket.emit('transcript', transcriptResponse);
+      } else {
+        const transcriptResponse = generateNonFinalTranscriptResponse(response);
+        socket.emit('transcript', transcriptResponse);
       }
-
-      return socket.emit('transcript', { transcript, isFinal });
     })
     .on('end', () => {
-      console.log('end');
+      console.log('End of stream');
+      socket.emit('server_completed');
     });
 
   socket.on('audio', (data: Blob) => {
@@ -75,7 +61,50 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
+    console.log('A user disconnected. Shutting down stream completely');
     recognizeStream.end();
-    console.log('A user disconnected');
+  });
+
+  socket.on('client_completed', async () => {
+    console.log("Received event 'client_completed' from client");
+    // Once the stream is fully processed. End event is called which then again calls server completed event
+    recognizeStream.end();
   });
 });
+
+function generateFinalTranscriptResponse(
+  response: any
+): TranscriptResponseFinal | null {
+  const wordLengthsSeconds = response.alternatives[0].words.map((word: any) => {
+    const startTimeSeconds =
+      word.startTime.seconds + word.startTime.nanos * 1e-9;
+    const endTimeSeconds = word.endTime.seconds + word.endTime.nanos * 1e-9;
+    return endTimeSeconds - startTimeSeconds;
+  });
+  const wordLengths = wordLengthsSeconds.reduce(
+    (acc: number, curr: number) => acc + curr,
+    0
+  );
+  const wordsInBlock = wordLengthsSeconds.length;
+
+  if (wordsInBlock === 0) {
+    return null;
+  }
+
+  const speedWPM = wordsInBlock / (wordLengths / 60);
+  const speechClarity = response.alternatives[0].confidence;
+
+  return {
+    transcript: response.alternatives[0].transcript,
+    isFinal: true,
+    speechClarity,
+    speedWPM
+  };
+}
+
+function generateNonFinalTranscriptResponse(response: any) {
+  return {
+    transcript: response.alternatives[0].transcript,
+    isFinal: false
+  };
+}
