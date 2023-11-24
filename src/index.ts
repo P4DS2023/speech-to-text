@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { Server } from 'socket.io';
 import { SpeechClient } from '@google-cloud/speech';
+import jwt from 'jsonwebtoken';
 
 type TranscriptResponseNonFinal = {
   transcript: string;
@@ -23,9 +24,27 @@ const io = new Server(3001, {
   }
 });
 
-io.on('connection', (socket) => {
-  console.log('A user connected');
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  const publicKey = process.env.CLERK_PEM_PUBLIC_KEY;
 
+  if (!publicKey) {
+    return next(new Error('Authentication error. No public key found'));
+  }
+  if (!token) {
+    return next(new Error('Authentication error. No token found'));
+  }
+
+  try {
+    const decoded = jwt.verify(token, publicKey);
+    next();
+  } catch (err) {
+    console.error('Authentication error. Invalid token');
+    return next(new Error('Authentication error. Invalid token'));
+  }
+});
+
+io.on('connection', (socket) => {
   const speechClient = new SpeechClient();
   const request = {
     config: {
