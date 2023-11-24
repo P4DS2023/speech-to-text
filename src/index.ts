@@ -29,9 +29,11 @@ io.use((socket, next) => {
   const publicKey = process.env.CLERK_PEM_PUBLIC_KEY;
 
   if (!publicKey) {
+    console.error('Authentication error. No public key found');
     return next(new Error('Authentication error. No public key found'));
   }
   if (!token) {
+    console.error('Authentication error. No token found');
     return next(new Error('Authentication error. No token found'));
   }
 
@@ -45,7 +47,10 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  const speechClient = new SpeechClient();
+  const keyFileParsed = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS!);
+  const speechClient = new SpeechClient({
+    credentials: keyFileParsed
+  });
   const request = {
     config: {
       encoding: 'WEBM_OPUS',
