@@ -47,6 +47,7 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
+  console.log('A user connected');
   const keyFileParsed = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS!);
   const speechClient = new SpeechClient({
     credentials: keyFileParsed
