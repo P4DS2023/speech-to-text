@@ -17,16 +17,15 @@ type TranscriptResponseFinal = {
 
 type TranscriptResponse = TranscriptResponseNonFinal | TranscriptResponseFinal;
 
-const io = new Server(3001, {
+const io = new Server(3000, {
   cors: {
-    origin: 'http://localhost:3000',
-    methods: ['GET', 'POST']
+    origin: '*'
   }
 });
 
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
-  const publicKey = process.env.CLERK_PEM_PUBLIC_KEY;
+  const publicKey = process.env.CLERK_PEM_PUBLIC_KEY!.replace(/\\n/g, '\n');
 
   if (!publicKey) {
     console.error('Authentication error. No public key found');
@@ -37,11 +36,17 @@ io.use((socket, next) => {
     return next(new Error('Authentication error. No token found'));
   }
 
+  console.log('Token: ' + token);
+  console.log('Public Key: ' + publicKey);
+
   try {
     const decoded = jwt.verify(token, publicKey);
     next();
   } catch (err) {
     console.error('Authentication error. Invalid token');
+    console.log(err);
+    console.log('Token:' + token);
+    console.log('Public Key:' + publicKey);
     return next(new Error('Authentication error. Invalid token'));
   }
 });
